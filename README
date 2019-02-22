@@ -1,0 +1,539 @@
+-------------------------------------------------------------------------------
+                            Tema 3 - IOCLA
+-------------------------------------------------------------------------------
+
+Autor: Smadu Razvan-Alexandru 325CB
+
+1. Analiza statica si dinamica
+    Functii:
+
+    0x080484F0 - void start() 
+    Functia nu returneaza niciun rezultat si nu are parametrii. Reprezinta 
+    punctul de inceput al programului. Acesta apeleaza functia 
+    __libc_start_main(...) de la adresa 0x080484D0. La randul ei, functia 
+    int __libc_start_main(int (*main)(int argc, char** argv), 
+                        int argc, char** argv, void (*__libc_csu_init)(), 
+                        void (*__libc_csu_finit)(), void (*rtld_fini)(), 
+                        void (*stack_end)) [1]
+    creeaza mediul de executie si apoi executa functia main().
+
+
+    0x080485EB - int CheckSumOfString(char* arg0) 
+    O posibila implementarea ar putea fi urmatoare (high-level): 
+        int CheckSumOfString(char* arg0) 
+        {
+            int index = 0;
+            int sum = 0;
+
+            while (index <= 1023) 
+            {
+                sum += arg0[index];
+                index++;
+            }
+
+            if (sum == 0x12345)
+                return 0;
+            
+            return arg0[index];
+        }
+    Aceasta calculeaza suma caracterelor in ASCII ale unui string si verifica
+    daca este 0x12345. In cazul afirmativ se returneaza 0, altfel se returneaza
+    valoare in ASCII a ultimului caracter din string. Stringul are lungimea 
+    1024 (indexul se duce pana la 1023 inclusiv). 
+    Descriere low-level: se initializeaza variabilele la 0, se compara index-ul
+    cu 1023, daca este mai mic se sare la o secventa (la adresa 0x08048608) unde
+    se pune adresa string-ului in registrul edx, la fel si index-ul se pune in 
+    eax; se calculeaza adresa caracterului de pe indexul edx (eax + edx) si se 
+    pune in eax valoarea caracterului. Se adauga valoarea ASCII la variabila 
+    care retine suma si se incrementeaza index-ul. Dupa ce se termina bucla, 
+    se compara suma cu 0x12345 si se seteaza valoare de return 0, in cazul
+    afirmativ; altfel se returneaza valoare in ASCII a ultimului caracter, de 
+    pe index-ul 1023.
+    Utilizare: este folosit in deblocarea vault-ului.
+
+
+    0x08048635 - void encryptKey0xAA(void* address, int n) 
+    O posibila implementare a acestei functii poate fi (high-level):
+        void encryptKey0xAA(void* address, int n) 
+        {
+            int index = 0;
+            char letter;
+
+            while (index < n) 
+            {
+                letter = address[index];
+                letter ^= 0xAA;
+
+                address[index] = letter;
+                index++;
+            }
+        }
+    Aceasta functie aplica XOR pe toate caracterele unui string. Practic 
+    cripteaza sau decripteaza (datorita proprietatilor lui XOR: 
+    x XOR a XOR a = x). Cheia de criptare este 0xAA. 
+    Descriere low-level: Se initializeaza variabila (ebp - 4), apoi se sare la 
+    verificarea index-ului (ebp - 4) cu n si se trece la adresa 0x0804864B daca 
+    e adevarat, altfel se iese din functie. In bucla, se salveaza in edx 
+    valoarea primului argument (notat n in functia de mai sus), in eax se pune
+    valoarea index-ului si se determina adresa caracterului pe pozitia index 
+    care se pune in registrul al. Se copiaza litera in variabliza (ebp - 5), se 
+    aplica XOR cu 0xAA; se calculeaza din nou adresa caracterului de pe pozitia
+    index si se muta caracterul la acea adresa. Se incrementeaza indexul si se 
+    continua bucla.
+    Utilizare: este folosit la deblocarea vault-ului si la afisarea mesajelor,
+    acestea fiind criptate.
+
+
+    0x08048679 - void solvePuzzleFct()
+    Contine o singura variabila locala de dimensiune 32.
+    Descriere low-level: Se seteaza ecx la 0, eax la 32, se face AND intre eax 
+    si 0xFFFFFFFC, care o sa lase eax neschimbat. Se salveaza eax in edx si se 
+    seteaza eax la 0. Se initializeaza vectorul la 0 (ca implementare ar putea 
+    fi: i = 0; do { var[i] = 0x0; } while (i < 32);). Apoi se apeleaza functia
+    puts() care afiseaza mesajul "Enter the valid serial: " si apoi se apeleaza
+    functia scanf("%32s", var); care permite citirea de la tastatura un string
+    de lungimea maxima 32. Apoi se apeleaza functia checkSerialKey(var) 
+    (implementarea se afla la adresa 0x08048A5D; descrierea este mai jos) al 
+    carui rezultat este testat cu 0. Daca este 0, se afiseaza "Nope, try again",
+    altfel se afiseaza "Correct" si se iese din functie.
+    Utilizare: Functia este apelata in ChooseOptionMenu(), cand de la stdin se 
+    alege optiunea 0. 
+
+
+    0x080486EA - void enterName()
+    Implementare high-level:
+        void enterName() 
+        {
+            char buf[20];
+            printf("Enter desired username: ");
+            scanf("%20s", buf);
+        }
+    Functia aceasta aloca o variablia locala pe stiva, afiseaza un mesaj si 
+    populeaza stringul. 
+    Utilizare: Este apelata in chooseOptionMenu() cand se alege optiunea 1.
+
+
+    0x08048710 - void enterAddress()
+    Implementare high-level:
+        void enterAddress()
+        {
+            char buf[16];
+            printf("Enter desired address: ");
+            scanf("%20s", buf);
+        }
+    Functia aloca o variabila de dimensiune 16, afiseaza un mesaj si populeaza
+    striungul. Aici exista posibilitatea de overflow.
+    Utilizare: Este apelata in ChooseOptionMenu() cand se alege optiunea 2.
+
+
+    0x08048736 - void unlockVault()
+    Implementare high-level:
+        void unlockVault() 
+        {
+            char buf[4];
+            read(stdin, buf, 24);
+        }
+    Functia aloca un char[4] si apoi se citeste de la stdin string-ul. Aici
+    apare vulnerabiliate - buffer overflow - intrucat raman 20 de byts care pot
+    fi suprascrisi pe stiva.
+    Utilizare: Este apelata in ChooseOptionMenu() cand se alege optiunea 3.
+
+
+    0x0804874E - void sendMagicKeyFct()
+    Implementare high-level:
+        void sendMagicKeyFct()
+        {
+            char buf[1024];
+            char var1;     
+
+            if (GloabalVar1 != 0)
+            {
+                push("Vault is still locked.");
+                return;
+            }
+
+            if (GloabalVar2 != 0)
+            {
+                push("Vault is still locked.");
+                return;
+            }
+
+            if (GloabalVar3 != 0)
+            {
+                push("Vault is still locked.");
+                return;
+            }
+            
+            read(1024, buf, stdin);
+
+            var1 = 0;
+            encryptKey0xAA(addr, 1024);
+
+            if (!CheckSumOfString(buf)) 
+                return;
+			
+			if (!strstr(buf, "Alexandru"))
+				return;
+
+			if (!strstr(buf, "Smadu"))
+				return;
+
+            mprotect(addr, 1024, 5);
+
+            addr(&buf);
+
+        }
+    Functia aloca un buffer de 1024 si un caracter; verifica daca variabilele
+    globale GloabalVar1, GloabalVar2 si GloabalVar3 nu sunt setate la 0. Apoi
+    citeste de la tastatura bufferul de 1024; seteaza variabila char la 0 si
+    apeleaza functia encryptKey0xAA pe variablia addr. Apoi verifica daca 
+    bufferul indeplineste conditia de suma (sa fie 0x12345), apeleaza 
+    mprotect() care se executa cu succes (se returneaza 0) care seteaza 
+    protectia unei zone de memorie si apoi apeleaza functia de la addr cu 
+    parametru o adresa (in cazul de fata, adresa bufferului). Prin aceasta
+    functie se poate apela functia CheckWin(), prin exploatare. 
+
+
+    0x0804882B - void CheckWin()
+    Implementare high-level:
+        void CheckWin() 
+        {
+            void *var1;
+            var1 = addr;
+            
+            if (((var1 << 10) ^ var1) * 0x45D9F3A != WinProduct)
+            {
+                puts("Try harder!");
+                return;
+            }
+
+            puts("Win!");
+        }
+    Functia ia adresa lui addr, o shifteaza cu 10, face xor cu addr si 
+    inmulteste rezultatul cu numarul 0x45D9F3A (intreg este 73244474) si 
+    verifica daca rezultatul este WinProduct. In caz negativ se afiseaza mesajul
+    "Try harder" si se iese din functie, altfel se afiseaza "Win!".
+
+
+    0x08048871 - void PrintHeader()
+    Implementare high-level:
+        void PrintHeader() 
+        {
+            puts(headerStr);
+        }
+    Aceasta functie doar apeleaza functia puts din biblioteca C si afiseaza 
+    header-ul programului. Este folosit in functia main, la afisarea banner-ului
+    din meniului.
+
+
+    0x08048883 - void PrintOptions()
+    Implementare high-level:
+        void PrintOptions() 
+        {
+            puts(optionsStr);
+        }
+    Aceasta functie doar apeleaza functia puts din biblioteca C si afiseaza 
+    header-ul programului. Este folosit in functia main, la afisarea optiunilor
+    din meniu.
+
+
+    0x08048895 - void SetGlobalVar1()
+    Implementarea high-level:
+        void SetGlobalVar1()
+        {
+            GloabalVar1 = 0;
+            addr[0] = code1;
+            addr[1] = code2;
+        }
+    Aceasta functie seteaza GloabalVar1 la 0 si adauga in addr 8 octeti.
+    Aceasta functie nu este utilizata de program. Va fi folosita prin expoiting
+    la setarea variabliei GloabalVar1 la 0 pentru deblocarea Vault-ului. code1 
+    si code2 vor fi de asemenea folosite la exploatare.
+
+
+    0x080488BA - void SetGlobalVar2(int arg1)
+    Implementarea high-level:
+        void SetGlobalVar2(int arg1)
+        {
+            if (arg1 == 0xDEADC0DE)
+                return;
+            
+            GloabalVar2 = 0;
+            addr[2] = code3;
+            addr[3] = code4;
+        }
+    Aceasta functie verifica daca argumentul dat este 0xDEADC0DE, in caz 
+    adevarat se iese din functie, altfel se seteaza GloabalVar2 la 0 si se 
+    pune la addr[2] octetii din code3 si la addr[3] octetii din code4.
+    Ca si functia SetGlobalVar1, este folosita la deblovare Vault-ului prin
+    exploatare.
+
+
+    0x080488EA - void SetGlobalVar3(int arg1, int arg2)
+    Implementarea high-level:
+        void SetGlobalVar3(int arg1, int arg2)
+        {
+            int var1, var2;
+            var1 = arg1 + arg2
+            var2 = arg1 - arg2
+
+            if (var1 != 0xDEADBEEF) 
+                return;
+
+            if (var2 != 0x13371337) 
+                return;
+
+            GloabalVar3 = 0;
+            addr[4] = code5
+            addr[5] = code6
+        }
+    Functia verifica daca suma argumentelor este 0xDEADBEEF si diferenta lor 
+    este 0x13371337. In cazul afirmativ, se seteaza variabila GloabalVar3 = 0
+    si se pune la addr[4]=code5 si la addr[5]=code6. La fel ca la functiile
+    anterioare, functia este folosita la deblocarea Vault-ului prin exploatare.
+
+
+    0x0804893A - void ChooseOptionMenu()
+    Implementarea high-level:
+        void ChooseOptionMenu()
+        {
+            int var1;
+            scanf(oneInteger, &var1);
+            switch(var1) 
+            {
+                case 0: 
+                    solvePuzzleFct();
+                    break;
+                case 1: 
+                    enterName();
+                    break;
+                case 2: 
+                    enterAddress();
+                    break;
+                case 3: 
+                    unlockVault();
+                    break; 
+                case 4: 
+                    sendMagicKeyFct();
+                    break;
+                case 5: 
+                    puts(byeMsg);
+                    exit(1);
+                default:
+                    puts(unknownOptMsg);
+            }
+        }
+    Functia citeste de la tastatura un intreg si apoi se intra in switch, 
+    apelandu-se functia asociata fiecarei optiuni. Aceasta este apelata in 
+    functia main pentru selectare unei optiuni din Vault. 
+    Descriere la nivel scazut: functia respecta conventiile cdecl, prin urmare 
+    antetul este cel specific. Se aloca apoi o variabila de 4 octeti, se ia
+    adresa acesteia se pune pe stiva, se pune pe stiva si adresa stringului 
+    "%1d" si se apeleaza functia scanf(). Apoi se elibereaza stiva, se muta 
+    valoarea citita in EAX, se compara cu cifra 5 si daca e mai mare se iese 
+    din switch. Altfel se acceseaza tabela de jump si se face jump la cazul
+    asociat numarului. Acolo se apeleaza o functie sau se afiseaza un mesaj.
+    Ulterior se iese din functie. 
+
+
+    0x080489A9 - void main()
+    Implementarea high-level:
+        void main()
+        {
+            setbuf(stdin, NULL);
+            setbuf(stdout, NULL);
+
+            addr = mmap(NULL, 1024, 3, 258, -1, 0);
+            encryptKey0xAA(headerStr, 105);
+            encryptKey0xAA(optionsStr, 185);
+
+            PrintHeader();
+
+            while (1)
+            {
+                PrintOptions();
+                ChooseOptionMenu();
+            }
+        }
+    Functia main seteaza bufferele stdin si stdout; creeaza o noua mapare de in
+    spatiul virtual de adrese. Decripteaza headerul si optiunile si apoi le
+    printeaza. In bucla se afiseaza optiunile si se apeleaza functia in care
+    se aleg optiunile.
+
+
+    0x08048A20 - void ResetRegisters()
+    Este o functie care reseteaza registrele AH, ECX, EDX si ESI la valoarea 0.
+    Utilizare: este folosita la verificarea serialului in functia 
+    checkSerialKey(), in resetarea registrelor precizate mai sus.
+
+
+    0x08048A29 - void convertDLToHex()
+    Functia primeste ca parametru o valoare prin DL (caracter in ASCII) si o 
+    converteste la valoare pe care o reprezinta (de ex. '0' va deveni 0x0 sau 
+    'A' devine 0xA). Functia verifica in ce interval de afla caracterul si o 
+    converteste prin scaderea cu valoare specifica.
+
+
+    0x08048A52 - void SetEAXToZero()
+    Aceasta functie ia registrii ESI si EFLAGS si daca flagul Zero este setat la 
+    0 atunci EAX se seteaza la 0, altfel EAX ramane neschimbat.
+
+
+    0x08048A5D - int checkSerialKey(char *serial)
+	Functia verifica daca serialul primit ca argument este valid returnand 1, 
+	si 0 in cazul in care serialul dat este invalid. Algoritmul este urmatorul:
+	    - se seteaza eax la 1
+		- se reseteaza regestrele, mai putin eax, la 0
+		- se iau primele 3 caractere: c1, c2, c3 si se verifica daca:
+			> c3 + c1 = 0x6C
+			> c3 + c2 = 0x6A
+			> c1 + c2 = 0x68
+		- se ia caracterul 4, c4=abcdefgh (in binar codificat), si se verifica
+		  daca:
+			> efgh0000 ^ 11110000 = 10010000
+			> 0000abcd ^ 00001111 = 00001101
+		- se ia urmatorul caracter, c5=abcdefgh (in binar) si se verifica daca:
+		    > efgh0000 ^ 11110000 = 11010000
+			> 0000abcd ^ 00001111 = 00001001
+		- se ia urmatorul caracter c6=abcdefgh (in binar) si se verifica daca:
+		    > efgh0000 ^ 11110000 = 01100000
+			> 0000abcd ^ 00001111 = 00001101
+		- se iau urmatoarele caractere, c7 si c8 si se converteste c7 la 0xc7 
+		  (de exemplu daca c7 = 'A' => 0xc7 = 0xA) si caracterul c8 la 0xc8 
+		  si se verifica: 
+			> 0xc7 + 0xc8 = 0x1
+			> 0xc8 = 0x0
+		- se iau urmatoarele caractere c9 si c10 si se verifica daca:
+		    > c9 XOR c10 = 0x2
+			> c9 AND c10 = 0x31
+			> c10 XOR 0xFF = 0xCC
+		- se ia caracterul urmator c11=abcdefgh (in binar) si se verifica:
+			> efgh0000 ^ 11110000 = 11010000
+			> 0000abcd ^ 00001111 = 00001001
+		- se ia caracterul urmator c12=abcdefgh (in binar) si se verifica:
+			> efgh0000 ^ 11110000 = 10010000
+			> 0000abcd ^ 00001111 = 00001001
+		- se ia urmatorul caracter c13=abcdefgh (in binar) si se verifica:
+			> efgh0000 ^ 11110000 = 10010000
+			> 0000abcd ^ 00001111 = 00001101
+		- se ia caracterul urmator c14=abcdefgh (in binar) si se verifica:
+			> efgh0000 ^ 11110000 = 11010000
+			> 0000abcd ^ 00001111 = 00001001
+		- se iau urmatoarele doua caractere c15 si c16 se converteste c15 la
+		  0xc15 si c16 la 0xc16 si se verifica:
+		    > 0xc15 + 0xc16 = 0x5
+			> 0xc16 = 0x1
+		- se iau urmatoarele 3 caractere c17, c18 si c19 si se verifica daca:
+			> c19 + c17 = 0x95
+			> c19 + c18 = 0x61
+			> c17 + c18 = 0x94
+		- se verifica daca suma celor 19 caractere este 0x4C2
+	Rezolvand aceste "sisteme de ecuatii" se deduca serial key-ul urmator:
+                           5376c91013cf6c41d01
+	
+
+    Variabile:
+      .rodata:
+        0x08048D90 - serialMessage - "Enter the valid serial: "
+        0x08048D90 - stringSize32 - "%32s"
+        0x08048DAE - correctMessage - "Correct!"
+        0x08048DB7 - failMessage - "Nope, try again."
+        0x08048DC8 - enterUserNameMsg - "Enter desired username: "
+        0x08048DE1 - stringSize20 - "%20s"
+        0x08048DE6 - enterAddressMsg - "Enter desired address: "
+        0x08048DFE - lockedVaultMsg - "Vault is still locked."
+        0x08048E15 - winMessage - "Win!"
+        0x08048E1A - tryHarderMessage - "Try harder!"
+        0x08048E26 - oneInteger - "%1d"
+        0x08048E2A - byeMsg - "Bye."
+        0x08048E2F - unknownOptMsg - "Unknown option."
+        0x08048E40 - jump table pentru switch-ul din ChooseOptionMenu()
+      .data:
+        0x0804A300 - alexandruStr - "Alexandru"
+        0x0804A30A - smaduStr - "Smadu"
+        0x0804A318 - GloabalVar1 = 1
+        0x0804A31C - GloabalVar2 = 1
+        0x0804A320 - GloabalVar3 = 1
+        0x0804A324 - WinProduct = 1
+        0x0804A328 - code1 = 0x2B4F23FF
+        0x0804A32C - code2 = 0x0AAA94246
+        0x0804A330 - code3 = 0x0DF2156AA
+        0x0804A334 - code4 = 0x134D23A2
+        0x0804A338 - code5 = 0x0AAAAAEAA
+        0x0804A33C - code6 = 0x69630E59
+        0x0804A340 - headerStr  - stringul header
+        0x0804A3C0 - optionsStr - stringul cu optiuni
+      .bss:
+        0x0804A4A8 - addr - adresa returnata de mmap();
+
+
+	Vulnerabilitati:
+	0x0804872C - scanf-ul poate citi mai mult decat lungimea buffer-ului, 
+				 insa nu se poate exploata, intrucat nu suprascrie adresa
+				 de return
+	0x08048744 - scanf-ul poate citi mai mult decat lungimea buffer-ului,
+				 aici insa se poate exploata (in payload este folosit de 9 ori)
+	0x08048815 - apelul unei functii, folosind o variabila (pointer la functie);
+				 intrucat continutul este pe stiva, si se ofera posibilitatea
+				 de citire, se poate suprascrie acea zona de memori (ceea ce
+				 se si face in payload; setand variabilele globale la 0; se 
+				 seteaza si continutul acelei zone de memorie)
+	orice alt read/scanf din cod (cel mai potrivit este read-ul de la 0x0804878C
+				 intrucat are dimensiune de 1024, iar daca se suprascrie adresa
+				 de return de la un alt overflow, cum ar fi scanf-ul de la 
+				 0x08048744, se poate continua executia de la aceasta functie
+				 pentru a se produce un overflow si mai mare. Acesta este 
+				 folosit in injectare de cod, shellcode).
+
+    Exploit:
+	1) Se determina valoare esp-ului la inceputul functiei main().
+	2) Se ghiceste adresa unde mmap() ar putea oferi spatiu
+	3) Se pun datele in payload, la sectiunea de initializari
+	4) payload-gen.py genereaza un payload care:
+		a) selecteaza optiunea 3 si suprascrie adresa de return la functia care
+		   seteaza GlobalVar1 = 0 si se intoarce la chooseOptionMenu().
+		b) selecteaza optiunea 3 si suprascrie adresa de return la functia care
+		   seteaza GlobalVar2 = 0 si se intoarce la chooseOptionMenu().
+		c) selecteaza optiunea 3 si suprascrie adresa de return la functia care
+		   seteaza GlobalVar3 = 0 si se intoarce la chooseOptionMenu().
+		d) selecteaza optiunea 3 si suprascrie adresa de return la functia 
+		   sendMagicKeyFct() unde se citeste un buffer de 1024 caractere care
+		   contine si un shellcode care seteaza variabilele code1, code2, 
+		   code3, code4, code5 si code6. Codul injectat este similar urmatorul
+		   (poate sa difere insa in functie de valoare newESP din scriptul 
+		   python):
+
+			    mov dword [0x0804A328], 0x6d4f23ff ; set code1
+			    mov dword [0x0804A32C], 0xae098eaf ; set code2
+			    mov dword [0x0804A330], 0x93eaaaa2 ; set code3
+			    mov dword [0x0804A334], 0x2284126c ; set code4
+				mov dword [0x0804A338], 0x7a55a2ae ; set code5
+				mov dword [0x0804A33C], 0x3a3a6963 ; set code6
+			    mov eax, 0x0804893A 
+				jmp eax				; jump to chooseOptionMenu() function
+
+			Aceasta practic seteaza ca functia la adresa returnata de mmap, si 
+			retinuta in variabila addr (0x0804A4A8) sa poata executa urmatorul 
+			cod (sau un cod similar): 
+
+				push ebp
+				mov ebp, esp
+				mov dword [0x0804A324], 0xc6394000 ; set WinProduct to print Win!
+				mov eax, 0x0804882E
+				call eax   ; call CheckWin()
+				leave
+				ret
+			
+		e) se reapeleaza cele 3 functii care setau variabilele globala, insa 
+		   acum pentru a seta continutul functiei.
+		f) se apeleaza optiunea 4, se citeste un buffer care indeplineste 
+		   conditiile, se apeleaza in cele din urma functia CheckWin() si se
+		   afiseaza "Win!".
+		g) se selecteaza optiunea 5 pentru graceful exit.
+
+	
+
+Resurse utilizate pentru modul cum este apelata functia main():
+  [1] http://dbp-consulting.com/tutorials/debugging/linuxProgramStartup.html
+
+
